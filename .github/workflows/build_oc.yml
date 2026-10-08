@@ -1,0 +1,64 @@
+name: Build Safe Kernel OC Redmi 12C (Earth)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies & Clang Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi bc flex bison make libssl-dev libelf-dev zip unzip python3
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r416183b.tar.gz
+          mkdir clang && tar -xf clang-r416183b.tar.gz -C clang
+
+      - name: Clone Source Kernel & AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/mubashardev/android_kernel_xiaomi_earth_lineageos.git -b lineage-23.2 kernel-src
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AK3
+
+      - name: Apply Safe CPU 2.0GHz & Mild GPU OC (1.05GHz)
+        run: |
+          cd kernel-src
+          
+          # Patch GPU OC ringan ke 1.05GHz (1050000) agar aman & stabil
+          find drivers/gpu/ -name "*mtk*" -o -name "*ged*" | xargs sed -i 's/1000000/1050000/g' 2>/dev/null || true
+          find drivers/misc/mediatek/ -name "*gpu*" -o -name "*dvfs*" | xargs sed -i 's/1000000/1050000/g' 2>/dev/null || true
+
+          # Kunci CPU Big Cores di 2.0GHz & Tweak Low Latency
+          sed -i 's/CONFIG_HZ_100=y/# CONFIG_HZ_100 is not set/' arch/arm64/configs/earth_defconfig
+          sed -i 's/# CONFIG_HZ_300 is not set/CONFIG_HZ_300=y/' arch/arm64/configs/earth_defconfig
+          echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> arch/arm64/configs/earth_defconfig
+          echo "CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y" >> arch/arm64/configs/earth_defconfig
+
+      - name: Build Kernel
+        run: |
+          cd kernel-src
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="$(pwd)/../clang/bin:$PATH"
+
+          make O=out earth_defconfig CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1
+          make -j$(nproc --all) O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1
+
+      - name: Package AnyKernel3 ZIP
+        run: |
+          if [ -f kernel-src/out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp kernel-src/out/arch/arm64/boot/Image.gz-dtb AK3/
+          elif [ -f kernel-src/out/arch/arm64/boot/Image.gz ]; then
+            cp kernel-src/out/arch/arm64/boot/Image.gz AK3/
+          fi
+          
+          cd AK3
+          zip -r9 ../Kernel-SafeOC-Earth.zip * -x .git README.md
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-SafeOC-Earth
+          path: Kernel-SafeOC-Earth.zip
