@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -13,23 +13,22 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison flex libssl-dev libelf-dev make gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang lld llvm zip unzip python3
+          sudo apt-get install -y clang lld llvm gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi bc flex bison make libssl-dev libelf-dev libyaml-dev zip unzip python3
 
-      - name: Clone Source Kernel, KernelSU & AnyKernel3
+      - name: Clone Source Kernel Cleanly
         run: |
+          # Clone tanpa membawa submodule tua yang broken
           git clone --depth=1 https://github.com/mubashardev/android_kernel_xiaomi_earth_lineageos.git -b lineage-23.2 kernel-src
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AK3
           
-          # Fix missing KernelSU module
+          # Hapus sisa folder submodule jika ada & clone KernelSU resmi
           cd kernel-src
-          git submodule update --init --recursive || true
-          git clone --depth=1 https://github.com/trsnm/KernelSU.git drivers/kernelsu || true
+          rm -rf drivers/kernelsu
+          git clone --depth=1 https://github.com/tiann/KernelSU.git drivers/kernelsu
 
-      - name: Configure Performance & Low Latency
+      - name: Configure Performance Tweak
         run: |
           cd kernel-src
-          sed -i 's/CONFIG_HZ_100=y/# CONFIG_HZ_100 is not set/' arch/arm64/configs/earth_defconfig
-          sed -i 's/# CONFIG_HZ_300 is not set/CONFIG_HZ_300=y/' arch/arm64/configs/earth_defconfig
           echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> arch/arm64/configs/earth_defconfig
           echo "CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y" >> arch/arm64/configs/earth_defconfig
 
@@ -45,23 +44,16 @@ jobs:
       - name: Package AnyKernel3 ZIP
         run: |
           cd kernel-src
-          IMAGE_PATH=""
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            IMAGE_PATH="out/arch/arm64/boot/Image.gz-dtb"
+            cp out/arch/arm64/boot/Image.gz-dtb ../AK3/
           elif [ -f out/arch/arm64/boot/Image.gz ]; then
-            IMAGE_PATH="out/arch/arm64/boot/Image.gz"
+            cp out/arch/arm64/boot/Image.gz ../AK3/
           elif [ -f out/arch/arm64/boot/Image ]; then
-            IMAGE_PATH="out/arch/arm64/boot/Image"
+            cp out/arch/arm64/boot/Image ../AK3/
           fi
 
-          if [ -n "$IMAGE_PATH" ]; then
-            cp $IMAGE_PATH ../AK3/
-            cd ../AK3
-            zip -r9 ../Kernel-SafeOC-Earth.zip * -x .git README.md
-          else
-            echo "Error: Image file not found!"
-            exit 1
-          fi
+          cd ../AK3
+          zip -r9 ../Kernel-SafeOC-Earth.zip * -x .git README.md
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
