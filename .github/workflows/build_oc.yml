@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -15,16 +15,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang lld llvm gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi bc flex bison make libssl-dev libelf-dev libyaml-dev zip unzip python3
 
-      - name: Clone Source Kernel Cleanly
+      - name: Clone Source Kernel & AnyKernel3
         run: |
-          # Clone tanpa membawa submodule tua yang broken
           git clone --depth=1 https://github.com/mubashardev/android_kernel_xiaomi_earth_lineageos.git -b lineage-23.2 kernel-src
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AK3
-          
-          # Hapus sisa folder submodule jika ada & clone KernelSU resmi
+
+      - name: Fix Missing KernelSU Kconfig
+        run: |
           cd kernel-src
-          rm -rf drivers/kernelsu
-          git clone --depth=1 https://github.com/tiann/KernelSU.git drivers/kernelsu
+          # Hapus baris pemanggilan KernelSU agar tidak menanyakan file Kconfig yang hilang
+          sed -i '/kernelsu/d' drivers/Kconfig || true
 
       - name: Configure Performance Tweak
         run: |
@@ -37,23 +37,31 @@ jobs:
           cd kernel-src
           export ARCH=arm64
           export SUBARCH=arm64
+          export KCFLAGS="-w"
 
-          make O=out earth_defconfig CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1
-          make -j$(nproc --all) O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1
+          make O=out earth_defconfig CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+          make -j$(nproc --all) O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
 
       - name: Package AnyKernel3 ZIP
         run: |
           cd kernel-src
+          IMAGE_PATH=""
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp out/arch/arm64/boot/Image.gz-dtb ../AK3/
+            IMAGE_PATH="out/arch/arm64/boot/Image.gz-dtb"
           elif [ -f out/arch/arm64/boot/Image.gz ]; then
-            cp out/arch/arm64/boot/Image.gz ../AK3/
+            IMAGE_PATH="out/arch/arm64/boot/Image.gz"
           elif [ -f out/arch/arm64/boot/Image ]; then
-            cp out/arch/arm64/boot/Image ../AK3/
+            IMAGE_PATH="out/arch/arm64/boot/Image"
           fi
 
-          cd ../AK3
-          zip -r9 ../Kernel-SafeOC-Earth.zip * -x .git README.md
+          if [ -n "$IMAGE_PATH" ]; then
+            cp $IMAGE_PATH ../AK3/
+            cd ../AK3
+            zip -r9 ../Kernel-SafeOC-Earth.zip * -x .git README.md
+          else
+            echo "Error: Image file not found!"
+            exit 1
+          fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
