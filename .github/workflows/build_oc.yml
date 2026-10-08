@@ -15,10 +15,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc bison flex libssl-dev libelf-dev make gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang lld llvm zip unzip python3
 
-      - name: Clone Source Kernel & AnyKernel3
+      - name: Clone Source Kernel, KernelSU & AnyKernel3
         run: |
           git clone --depth=1 https://github.com/mubashardev/android_kernel_xiaomi_earth_lineageos.git -b lineage-23.2 kernel-src
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AK3
+          
+          # Fix missing KernelSU module
+          cd kernel-src
+          git submodule update --init --recursive || true
+          git clone --depth=1 https://github.com/trsnm/KernelSU.git drivers/kernelsu || true
 
       - name: Configure Performance & Low Latency
         run: |
